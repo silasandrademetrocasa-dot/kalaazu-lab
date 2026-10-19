@@ -45,6 +45,7 @@ jobs:
       POLICY_SERVER_PORT: '1843'
 
     steps:
+      # FASE 1 - PREPARAR AMBIENTE
       - name: Checkout Kalaazu LAB
         uses: actions/checkout@v4
 
@@ -54,7 +55,7 @@ jobs:
           distribution: temurin
           java-version: '25'
 
-      # FASE 1 - BANCO DE DADOS
+      # FASE 2 - BANCO DE DADOS
       - name: Import temporary database
         shell: bash
         run: |
@@ -72,12 +73,17 @@ jobs:
           echo "Imported tables: $tables"
           test "$tables" -gt 0
 
-      # FASE 2 - UNIVERSO E JOGADORES
-      - name: Start game universe and test pilot
+          echo "SUCCESS: Database imported"
+
+      # FASE 3 - SERVIDOR E PILOTO
+      - name: Start universe and connect pilot
         shell: bash
         run: |
           set -euo pipefail
+
           chmod +x ./gradlew
+
+          echo "=== STARTING KALAAZU UNIVERSE ==="
 
           ./gradlew run --no-daemon --console=plain \
             > universe.log 2>&1 &
@@ -93,6 +99,7 @@ jobs:
           ready=false
 
           for attempt in $(seq 1 150); do
+
             if ! kill -0 "$app_pid" 2>/dev/null; then
               echo "FAIL: Application exited"
               exit 1
@@ -123,7 +130,7 @@ jobs:
           echo "Policy port: 1843 OK"
           echo "Map 1: 80 NPCs and 100 collectables"
 
-          # FASE 3 - CADASTRO DO PILOTO
+          # FASE 4 - CADASTRAR PILOTO
           echo "=== TESTING PLAYER REGISTRATION ==="
 
           TEST_USER="p${GITHUB_RUN_ID}"
@@ -138,15 +145,17 @@ jobs:
 
           if ! echo "$REGISTER_RESPONSE" | \
             jq -e '.status == "OK"' >/dev/null; then
+
             echo "FAIL: Pilot registration"
             echo "$REGISTER_RESPONSE" | \
               jq -r '.message // "Unknown error"'
+
             exit 1
           fi
 
           echo "SUCCESS: Pilot registered"
 
-          # FASE 4 - LOGIN DO PILOTO
+          # FASE 5 - AUTENTICAR PILOTO
           echo "=== TESTING PLAYER LOGIN ==="
 
           LOGIN_BODY=$(jq -nc --arg u "$TEST_USER" \
@@ -159,34 +168,143 @@ jobs:
 
           if ! echo "$LOGIN_RESPONSE" | \
             jq -e '.status == "OK"' >/dev/null; then
+
             echo "FAIL: Pilot authentication"
             echo "$LOGIN_RESPONSE" | \
               jq -r '.message // "Unknown error"'
+
             exit 1
           fi
 
           echo "SUCCESS: Pilot authentication completed"
-          echo "=== KALAAZU LAB TEST COMPLETED ==="
 
-      # FASE 5 - DIAGNOSTICO
+          # FASE 6 - IDENTIFICAR CONTA
+          echo "=== PREPARING TCP CONNECTION ==="
+
+          ACCOUNT_ID=$(echo "$LOGIN_RESPONSE" | \
+            jq -er '.data.account.id')
+
+          SESSION_ID=$(echo "$LOGIN_RESPONSE" | \
+            jq -er '.data.account.sessionId')
+
+          if ! [[ "$ACCOUNT_ID" =~ ^[0-9]+$ ]]; then
+            echo "FAIL: Invalid account ID"
+            exit 1
+          fi
+
+          test -n "$SESSION_ID"
+
+          USER_ID=$(docker exec \
+            "${{ job.services.mariadb.id }}" \
+            mariadb -N -s -u root -pci-root-only \
+            -e "SELECT users_id FROM kalaazu.accounts WHERE id=${ACCOUNT_ID} LIMIT 1;")
+
+          if ! [[ "$USER_ID" =~ ^[0-9]+$ ]]; then
+            echo "FAIL: Could not resolve user ID"
+            exit 1
+          fi
+
+          echo "SUCCESS: Pilot identity resolved"
+
+          # FASE 7 - CONEXAO TCP
+          echo "=== TESTING GAME TCP LOGIN ==="
+
+          TCP_USER_ID="$USER_ID" \
+          TCP_SESSION_ID="$SESSION_ID" \
+          python3 - <<'PY'
+          import os
+          import socket
+          import time
+
+          user_id = os.environ["TCP_USER_ID"]
+          session_id = os.environ["TCP_SESSION_ID"]
+
+          address = ("127.0.0.1", 8080)
+
+          print("Connecting to game server...")
+
+          with socket.create_connection(
+              address, timeout=10
+          ) as connection:
+
+              connection.settimeout(20)
+
+              login = (
+                  f"LOGIN|{user_id}|{session_id}|V4"
+              ).encode("utf-8") + b"\n\x00"
+
+              connection.sendall(login)
+
+              print("TCP LOGIN packet submitted")
+
+              response = connection.recv(8192)
+
+              if not response:
+                  raise RuntimeError(
+                      "Game server returned empty response"
+                  )
+
+              print(
+                  "SUCCESS: Initial game response received"
+              )
+
+              connection.sendall(b"RDY\n\x00")
+
+              print("RDY packet submitted")
+
+              time.sleep(5)
+
+          print("TCP test sequence completed")
+          PY
+
+          # FASE 8 - VALIDAR ENTRADA NO MAPA
+          echo "=== VERIFYING PLAYER MAP INITIALIZATION ==="
+
+          player_ready=false
+
+          for attempt in $(seq 1 20); do
+
+            if grep -Fq \
+              "Initializing player ${ACCOUNT_ID}" \
+              universe.log; then
+
+              player_ready=true
+              break
+            fi
+
+            sleep 1
+          done
+
+          if [ "$player_ready" != "true" ]; then
+            echo "FAIL: Player initialization not confirmed"
+            exit 1
+          fi
+
+          echo "SUCCESS: Player initialization confirmed"
+          echo "=== KALAAZU LAB TCP TEST COMPLETED ==="
+
+      # FASE 9 - DIAGNOSTICOS
       - name: Universe diagnostics
         if: always()
         shell: bash
         run: |
           if [ -f universe.log ]; then
+
             echo "=== IMPORTANT EVENTS ==="
 
             grep -nEi \
-              'Initialized map|Loading maps|Starting .*server|Started game server|Exception|ERROR|Caused by' \
+              'Initialized map|Initializing player|Loading maps|Starting .*server|Started game server|Connection received|Packet received|Exception|ERROR|Caused by' \
               universe.log | tail -n 120 || true
 
             echo "=== LAST LOG LINES ==="
+
             tail -n 120 universe.log
+
           else
             echo "No universe log generated"
           fi
 
-      # FASE 6 - LOGS DE FALHAS
+      # FASE 10 - SALVAR LOGS DE FALHAS
       - name: Upload failure logs
         if: failure()
         uses: actions/upload-artifact@v4
