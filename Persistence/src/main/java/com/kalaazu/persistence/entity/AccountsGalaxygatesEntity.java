@@ -22,7 +22,7 @@ public class AccountsGalaxygatesEntity {
 
     @Basic
     @Column(name = "parts", nullable = false)
-    private byte parts = 0;
+    private short parts = 0;
 
     @Basic
     @Column(name = "lifes", nullable = false)
