@@ -1,0 +1,53 @@
+KALAAZU LAB - FASE 9: PREPARACAO DO BACKEND
+
+STATUS:
+- A prévia visual está online no Render e funciona como simulação OFFLINE.
+- Este pacote NÃO foi aplicado ao GitHub nem implantado no Render.
+- Deploy real do Java + WebSocket requer MariaDB externo/persistente e configurações seguras.
+
+ARQUIVOS / POSICOES NO REPOSITORIO kalaazu-lab:
+  deploy/Dockerfile
+  deploy/start.sh
+  deploy/secured_gateway.py
+  .dockerignore
+  .github/workflows/lab-render-image.yml
+
+1. Suba os arquivos, preservando as pastas, na branch develop do GitHub.
+2. Em Actions, execute 'Kalaazu LAB - Render Docker image check'.
+   Esse teste constroi a imagem no GitHub. Não implanta nada nem cobra serviços adicionais.
+3. Configure um banco MariaDB 11.x SEPARADO, privado e com disco persistente.
+   Nao utilize o Supabase/Postgres do Stellar Legacy: sao bancos incompatíveis.
+4. Banco inicial: o arquivo Persistence/database/dump.sql comeca com
+   'DROP DATABASE IF EXISTS kalaazu' e por isso NAO deve ser executado
+   num banco de producao sem remover essas linhas e assegurar banco vazio.
+   A tabela accounts_settings do dump e antiga; alinhe-a com
+   Persistence/database/accounts_settings/structure.sql antes de começar.
+   Teste migrações e backup antes de liberar usuários.
+5. O serviço web Java + gateway usa Dockerfile deploy/Dockerfile, contexto '.'.
+   Porta publica = variavel PORT, HTTP/WebSocket apenas pelo gateway.
+   Java interno nas portas 8080 e 8081. MariaDB deve ser externo.
+6. Variaveis obrigatorias do web service (sem valores secretos aqui):
+   MYSQL_HOST, MYSQL_PORT=3306, MYSQL_DATABASE=kalaazu,
+   MYSQL_USERNAME, MYSQL_PASSWORD,
+   BRIDGE_PUBLIC_ORIGIN=https://SEU-SERVICO.onrender.com,
+   KALAAZU_PREVIEW_KEY=(chave forte aleatoria, no minimo 20 caracteres).
+   Opcional: JAVA_TOOL_OPTIONS=-Xmx512m (ajustar conforme plano e medição).
+7. Mantenha SPRING_JPA_HIBERNATE_DDL_AUTO=validate. O serviço nao deve
+   atualizar schemas do banco persistente automaticamente.
+
+LIMITACOES PARA PRODUCAO:
+- Render nao fornece MariaDB gerenciado via conector nesta conta.
+- Precisa de banco privado persistente, backup lógico automatizado e plano de
+  restauracao. Disco pago no Render ou MariaDB de outro provedor.
+- O gateway atual guarda sessoes em memoria, nao aplica toda a politica
+  de rate limit ou bloqueio anti-abuso exigida em producao, e precisa usar
+  users_id autoritativo (hoje pode presumir que e igual ao account_id).
+- A UI HTML5 sincroniza pacotes iniciais, mas ataque e coleta reais ainda
+  nao foram integrados; nao chamar a versao de jogo multiplayer completo.
+- A protecao por chave deste pacote e so um bloqueio de ACESSO DE TESTE.
+- Java, scripts e instalacao NAO precisam rodar no PC da empresa.
+
+REFERENCIAS:
+- https://render.com/docs/deploy-mysql
+- https://render.com/docs/disks
+- https://github.com/silasandrademetrocasa-dot/kalaazu-lab
