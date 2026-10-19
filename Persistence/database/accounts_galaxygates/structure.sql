@@ -8,7 +8,7 @@ CREATE TABLE `accounts_galaxygates`
         COMMENT 'Primary Key.',
     `galaxygates_id` tinyint  NOT NULL,
     `accounts_id`    int      NOT NULL,
-    `parts`          tinyint  NOT NULL DEFAULT 0
+    `parts`          smallint  NOT NULL DEFAULT 0
         COMMENT 'Collected parts.',
     `lifes`          tinyint  NOT NULL DEFAULT -1
         COMMENT 'Available lives (-1 not build yet)',
