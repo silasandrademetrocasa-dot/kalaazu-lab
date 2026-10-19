@@ -138,7 +138,7 @@ public class MapService implements Logger {
         var npcIds = new ArrayList<Integer>();
         map.getMapsNpcs()
                 .forEach(npc -> {
-                    for (int i = 0; i < 2000/*npc.getAmount()*/; i++) {
+                    for (int i = 0; i < Math.max(0, npc.getAmount()); i++) {
                         var position = Vector.random(map.getLimits().margin());
 
                         int id;
@@ -155,7 +155,7 @@ public class MapService implements Logger {
         var collectablesIds = new ArrayList<Integer>();
         map.getMapsCollectables()
                 .forEach(collectable -> {
-                    for (int i = 0; i < 2000/*collectable.getAmount()*/; i++) {
+                    for (int i = 0; i < Math.max(0, collectable.getAmount()); i++) {
                         var position = Vector.random(collectable.getRegion());
 
                         int id;
