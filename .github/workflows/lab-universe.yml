@@ -54,6 +54,7 @@ jobs:
           distribution: temurin
           java-version: '25'
 
+      # FASE 1 - BANCO DE DADOS
       - name: Import temporary database
         shell: bash
         run: |
@@ -71,7 +72,8 @@ jobs:
           echo "Imported tables: $tables"
           test "$tables" -gt 0
 
-      - name: Start game universe
+      # FASE 2 - UNIVERSO E JOGADORES
+      - name: Start game universe and test pilot
         shell: bash
         run: |
           set -euo pipefail
@@ -88,8 +90,9 @@ jobs:
               >/dev/null 2>&1
           }
 
-          for attempt in $(seq 1 150); do
+          ready=false
 
+          for attempt in $(seq 1 150); do
             if ! kill -0 "$app_pid" 2>/dev/null; then
               echo "FAIL: Application exited"
               exit 1
@@ -102,49 +105,70 @@ jobs:
                  'Initialized map .* with 80 npcs, 100 collectables' \
                  universe.log; then
 
-              echo "SUCCESS: Universe initialized"
-              echo "HTTP port: 8081 OK"
-              echo "Game port: 8080 OK"
-              echo "Policy port: 1843 OK"
-              echo "Map 1: 80 NPCs and 100 collectables"
-              
-echo "=== TESTING PLAYER REGISTRATION ==="
-
-TEST_USER="labpilot_${GITHUB_RUN_ID}"
-
-REGISTER_BODY=$(jq -nc --arg u "$TEST_USER" \
-  '{username:$u,password:"LabOnly12345!",email:($u+"@example.invalid")}')
-
-REGISTER_RESPONSE=$(curl -fsS --max-time 30 \
-  -H "Content-Type: application/json" \
-  -d "$REGISTER_BODY" \
-  http://127.0.0.1:8081/external/register)
-
-echo "$REGISTER_RESPONSE" | jq -e '.status == "OK"' >/dev/null
-
-echo "SUCCESS: Pilot registered"
-
-LOGIN_BODY=$(jq -nc --arg u "$TEST_USER" \
-  '{username:$u,password:"LabOnly12345!"}')
-
-LOGIN_RESPONSE=$(curl -fsS --max-time 30 \
-  -H "Content-Type: application/json" \
-  -d "$LOGIN_BODY" \
-  http://127.0.0.1:8081/external/login)
-
-echo "$LOGIN_RESPONSE" | jq -e '.status == "OK"' >/dev/null
-
-echo "SUCCESS: Pilot authentication completed"
-
-              exit 0
+              ready=true
+              break
             fi
 
             sleep 2
           done
 
-          echo "FAIL: Universe startup timeout"
-          exit 1
+          if [ "$ready" != "true" ]; then
+            echo "FAIL: Universe startup timeout"
+            exit 1
+          fi
 
+          echo "=== UNIVERSE INITIALIZED ==="
+          echo "HTTP port: 8081 OK"
+          echo "Game port: 8080 OK"
+          echo "Policy port: 1843 OK"
+          echo "Map 1: 80 NPCs and 100 collectables"
+
+          # FASE 3 - CADASTRO DO PILOTO
+          echo "=== TESTING PLAYER REGISTRATION ==="
+
+          TEST_USER="labpilot_${GITHUB_RUN_ID}"
+
+          REGISTER_BODY=$(jq -nc --arg u "$TEST_USER" \
+            '{username:$u,password:"LabOnly12345!",email:($u+"@example.invalid")}')
+
+          REGISTER_RESPONSE=$(curl -fsS --max-time 30 \
+            -H "Content-Type: application/json" \
+            -d "$REGISTER_BODY" \
+            http://127.0.0.1:8081/external/register)
+
+          if ! echo "$REGISTER_RESPONSE" | \
+            jq -e '.status == "OK"' >/dev/null; then
+            echo "FAIL: Pilot registration"
+            echo "$REGISTER_RESPONSE" | \
+              jq -r '.message // "Unknown error"'
+            exit 1
+          fi
+
+          echo "SUCCESS: Pilot registered"
+
+          # FASE 4 - LOGIN DO PILOTO
+          echo "=== TESTING PLAYER LOGIN ==="
+
+          LOGIN_BODY=$(jq -nc --arg u "$TEST_USER" \
+            '{username:$u,password:"LabOnly12345!"}')
+
+          LOGIN_RESPONSE=$(curl -fsS --max-time 30 \
+            -H "Content-Type: application/json" \
+            -d "$LOGIN_BODY" \
+            http://127.0.0.1:8081/external/login)
+
+          if ! echo "$LOGIN_RESPONSE" | \
+            jq -e '.status == "OK"' >/dev/null; then
+            echo "FAIL: Pilot authentication"
+            echo "$LOGIN_RESPONSE" | \
+              jq -r '.message // "Unknown error"'
+            exit 1
+          fi
+
+          echo "SUCCESS: Pilot authentication completed"
+          echo "=== KALAAZU LAB TEST COMPLETED ==="
+
+      # FASE 5 - DIAGNOSTICO
       - name: Universe diagnostics
         if: always()
         shell: bash
@@ -162,6 +186,7 @@ echo "SUCCESS: Pilot authentication completed"
             echo "No universe log generated"
           fi
 
+      # FASE 6 - LOGS DE FALHAS
       - name: Upload failure logs
         if: failure()
         uses: actions/upload-artifact@v4
