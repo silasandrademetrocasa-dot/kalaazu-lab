@@ -28,7 +28,7 @@ public class GalaxygatesEntity {
 
     @Basic
     @Column(name = "parts", nullable = false)
-    private byte parts = 0;
+    private short parts = 0;
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "galaxygates_waves_id", referencedColumnName = "id", nullable = false)
