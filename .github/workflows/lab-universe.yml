@@ -1,3 +1,4 @@
+
 name: Kalaazu LAB - Universe test
 
 'on':
@@ -44,8 +45,7 @@ jobs:
       POLICY_SERVER_PORT: '1843'
 
     steps:
-
-      # FASE 1 - PREPARAR AMBIENTE
+      # FASE 1 - AMBIENTE
       - name: Checkout Kalaazu LAB
         uses: actions/checkout@v4
 
@@ -55,21 +55,20 @@ jobs:
           distribution: temurin
           java-version: '25'
 
-      # FASE 2 - PREPARAR BANCO DE DADOS
+      # FASE 2 - BANCO TEMPORARIO
       - name: Import and prepare temporary database
         shell: bash
         run: |
           set -euo pipefail
 
-          echo "=== IMPORTING KALAAZU DATABASE ==="
+          echo "=== IMPORTING DATABASE ==="
 
           docker exec -i "${{ job.services.mariadb.id }}" \
             mariadb -u root -pci-root-only \
             < Persistence/database/dump.sql
 
-          echo "=== FIXING LEGACY SETTINGS SCHEMA ==="
+          echo "=== PREPARING SETTINGS SCHEMA ==="
 
-          # Exclusivo do MariaDB descartavel deste job.
           docker exec "${{ job.services.mariadb.id }}" \
             mariadb -u root -pci-root-only \
             -e "DROP TABLE IF EXISTS kalaazu.accounts_settings;"
@@ -77,8 +76,6 @@ jobs:
           docker exec -i "${{ job.services.mariadb.id }}" \
             mariadb -u root -pci-root-only kalaazu \
             < Persistence/database/accounts_settings/structure.sql
-
-          echo "=== VERIFYING DATABASE ==="
 
           tables=$(docker exec \
             "${{ job.services.mariadb.id }}" \
@@ -96,9 +93,9 @@ jobs:
           echo "Settings columns: $settings_columns"
           test "$settings_columns" -gt 20
 
-          echo "SUCCESS: Database schema prepared"
+          echo "SUCCESS: Database prepared"
 
-      # FASE 3 - INICIAR UNIVERSO
+      # FASE 3 - UNIVERSO E PILOTO
       - name: Start universe and connect pilot
         shell: bash
         run: |
@@ -112,7 +109,6 @@ jobs:
             > universe.log 2>&1 &
 
           app_pid=$!
-
           trap 'kill "$app_pid" 2>/dev/null || true' EXIT
 
           port_open() {
@@ -123,7 +119,6 @@ jobs:
           ready=false
 
           for attempt in $(seq 1 150); do
-
             if ! kill -0 "$app_pid" 2>/dev/null; then
               echo "FAIL: Application exited"
               exit 1
@@ -135,7 +130,6 @@ jobs:
                grep -Eq \
                  'Initialized map .* with 80 npcs, 100 collectables' \
                  universe.log; then
-
               ready=true
               break
             fi
@@ -148,15 +142,12 @@ jobs:
             exit 1
           fi
 
-          echo "=== UNIVERSE INITIALIZED ==="
-          echo "HTTP port: 8081 OK"
-          echo "Game port: 8080 OK"
-          echo "Policy port: 1843 OK"
-          echo "Map 1: 80 NPCs and 100 collectables"
+          echo "SUCCESS: Universe initialized"
+          echo "HTTP: 8081"
+          echo "GAME: 8080"
+          echo "POLICY: 1843"
 
-          # FASE 4 - CADASTRAR PILOTO
-          echo "=== TESTING PLAYER REGISTRATION ==="
-
+          # FASE 4 - CADASTRO
           TEST_USER="p${GITHUB_RUN_ID}"
 
           REGISTER_BODY=$(jq -nc --arg u "$TEST_USER" \
@@ -169,20 +160,15 @@ jobs:
 
           if ! echo "$REGISTER_RESPONSE" | \
             jq -e '.status == "OK"' >/dev/null; then
-
             echo "FAIL: Pilot registration"
-
             echo "$REGISTER_RESPONSE" | \
               jq -r '.message // "Unknown error"'
-
             exit 1
           fi
 
           echo "SUCCESS: Pilot registered"
 
-          # FASE 5 - AUTENTICAR PILOTO
-          echo "=== TESTING PLAYER LOGIN ==="
-
+          # FASE 5 - LOGIN HTTP
           LOGIN_BODY=$(jq -nc --arg u "$TEST_USER" \
             '{username:$u,password:"LabOnly12345!"}')
 
@@ -193,20 +179,15 @@ jobs:
 
           if ! echo "$LOGIN_RESPONSE" | \
             jq -e '.status == "OK"' >/dev/null; then
-
             echo "FAIL: Pilot authentication"
-
             echo "$LOGIN_RESPONSE" | \
               jq -r '.message // "Unknown error"'
-
             exit 1
           fi
 
-          echo "SUCCESS: Pilot authentication completed"
+          echo "SUCCESS: Pilot HTTP login"
 
-          # FASE 6 - VALIDAR CONFIGURACOES DO PILOTO
-          echo "=== VERIFYING PLAYER SETTINGS ==="
-
+          # FASE 6 - IDENTIDADE E CONFIGURACOES
           ACCOUNT_ID=$(echo "$LOGIN_RESPONSE" | \
             jq -er '.data.account.id')
 
@@ -229,7 +210,7 @@ jobs:
             -e "SELECT users_id FROM kalaazu.accounts WHERE id=${ACCOUNT_ID} LIMIT 1;")
 
           if ! [[ "$USER_ID" =~ ^[0-9]+$ ]]; then
-            echo "FAIL: Could not resolve user ID"
+            echo "FAIL: Invalid user ID"
             exit 1
           fi
 
@@ -241,113 +222,134 @@ jobs:
           echo "V4 settings records: $settings_count"
 
           if [ "$settings_count" -lt 1 ]; then
-            echo "FAIL: Missing V4 player settings"
-            echo "Check RegisterService.createSettings()"
+            echo "FAIL: Missing V4 settings"
             exit 1
           fi
 
-          echo "SUCCESS: Pilot identity and settings validated"
+          echo "SUCCESS: Pilot settings validated"
 
-          # FASE 7 - CONECTAR AO SERVIDOR TCP
-          echo "=== TESTING GAME TCP LOGIN ==="
+          # FASE 7 - TESTE TCP SINCRONIZADO
+          echo "=== CONNECTING PILOT TO GAME SERVER ==="
 
           TCP_USER_ID="$USER_ID" \
           TCP_SESSION_ID="$SESSION_ID" \
+          TCP_ACCOUNT_ID="$ACCOUNT_ID" \
           python3 - <<'PY'
           import os
           import socket
           import time
+          from pathlib import Path
 
           user_id = os.environ["TCP_USER_ID"]
           session_id = os.environ["TCP_SESSION_ID"]
-
-          address = ("127.0.0.1", 8080)
-
-          print("Connecting to game server...", flush=True)
+          account_id = os.environ["TCP_ACCOUNT_ID"]
 
           with socket.create_connection(
-              address, timeout=10
+              ("127.0.0.1", 8080), timeout=10
           ) as connection:
 
-              connection.settimeout(15)
+              connection.settimeout(2)
 
               login = (
                   f"LOGIN|{user_id}|{session_id}|V4"
               ).encode("utf-8") + b"\n\x00"
 
               connection.sendall(login)
+              print("SUCCESS: TCP LOGIN sent", flush=True)
 
-              print("TCP LOGIN packet submitted", flush=True)
+              # Aguarda especificamente a inicializacao da nave.
+              # Nao confunde pacotes de configuracoes
+              # com a confirmacao de entrada na sessao.
+              deadline = time.monotonic() + 30
+              received = bytearray()
+              ship_ready = False
 
-              response = connection.recv(8192)
+              while time.monotonic() < deadline:
+                  try:
+                      chunk = connection.recv(8192)
+                  except socket.timeout:
+                      continue
 
-              if not response:
+                  if not chunk:
+                      raise RuntimeError(
+                          "Connection closed during initialization"
+                      )
+
+                  received.extend(chunk)
+
+                  if b"0|I|" in received:
+                      ship_ready = True
+                      break
+
+                  if len(received) > 262144:
+                      received = received[-65536:]
+
+              if not ship_ready:
                   raise RuntimeError(
-                      "Game server returned empty response"
+                      "Ship initialization packet not received"
                   )
 
               print(
-                  "SUCCESS: Initial game response received",
+                  "SUCCESS: Ship initialization received",
                   flush=True
               )
 
+              # Somente agora envia RDY.
               connection.sendall(b"RDY\n\x00")
+              print("SUCCESS: RDY submitted", flush=True)
 
-              print("RDY packet submitted", flush=True)
+              # Mantem a conexao ativa enquanto
+              # verifica a inicializacao no mapa.
+              deadline = time.monotonic() + 25
+              initialized = False
 
-              time.sleep(5)
+              while time.monotonic() < deadline:
+                  log = Path("universe.log").read_text(
+                      encoding="utf-8",
+                      errors="replace"
+                  )
 
-          print("TCP test sequence completed", flush=True)
+                  if f"Initializing player {account_id}" in log:
+                      initialized = True
+                      break
+
+                  time.sleep(0.25)
+
+              if not initialized:
+                  raise RuntimeError(
+                      "Player initialization not confirmed"
+                  )
+
+              print(
+                  "SUCCESS: Player initialization confirmed",
+                  flush=True
+              )
+
+          print(
+              "=== KALAAZU LAB TCP TEST COMPLETED ===",
+              flush=True
+          )
           PY
 
-          # FASE 8 - VALIDAR ENTRADA NO MAPA
-          echo "=== VERIFYING PLAYER MAP INITIALIZATION ==="
-
-          player_ready=false
-
-          for attempt in $(seq 1 20); do
-
-            if grep -Fq \
-              "Initializing player ${ACCOUNT_ID}" \
-              universe.log; then
-
-              player_ready=true
-              break
-            fi
-
-            sleep 1
-          done
-
-          if [ "$player_ready" != "true" ]; then
-            echo "FAIL: Player initialization not confirmed"
-            exit 1
-          fi
-
-          echo "SUCCESS: Player initialization confirmed"
-          echo "=== KALAAZU LAB TCP TEST COMPLETED ==="
-
-      # FASE 9 - DIAGNOSTICOS
+      # FASE 8 - DIAGNOSTICOS
       - name: Universe diagnostics
         if: always()
         shell: bash
         run: |
           if [ -f universe.log ]; then
-
             echo "=== IMPORTANT EVENTS ==="
 
             grep -nEi \
-              'Initialized map|Initializing player|Loading maps|Starting .*server|Started game server|Connection received|Connection closed|Packet received|Failed to handle packet|SettingsCommandBuilder|NoSuchElementException|Exception|ERROR|Caused by' \
+              'Initialized map|Initializing player|Starting .*server|Started game server|Connection received|Connection closed|Packet received|Failed to handle packet|NullPointerException|Exception|ERROR|Caused by' \
               universe.log | tail -n 120 || true
 
             echo "=== LAST LOG LINES ==="
-
             tail -n 120 universe.log
-
           else
             echo "No universe log generated"
           fi
 
-      # FASE 10 - SALVAR LOGS DE FALHAS
+      # FASE 9 - LOGS DE FALHAS
       - name: Upload failure logs
         if: failure()
         uses: actions/upload-artifact@v4
