@@ -24,7 +24,7 @@ public class CollectablesEntity {
 
     @Basic
     @Column(name = "gfx", nullable = false)
-    private byte gfx = 0;
+    private short gfx = 0;
 
     @Basic
     @Column(name = "type", nullable = false)
