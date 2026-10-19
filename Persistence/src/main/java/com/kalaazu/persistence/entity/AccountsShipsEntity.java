@@ -1,7 +1,7 @@
 package com.kalaazu.persistence.entity;
 
 import com.kalaazu.math.Vector;
-import com.kalaazu.persistence.VectorType;
+import com.kalaazu.persistence.PackedVectorType;
 import jakarta.persistence.*;
 import lombok.Data;
 import org.hibernate.annotations.Type;
@@ -25,7 +25,7 @@ public class AccountsShipsEntity {
 
     @Basic
     @Column(name = "position", nullable = false)
-    @Type(value = VectorType.class)
+    @Type(value = PackedVectorType.class)
     private Vector position = Vector.ZERO;
 
     @Basic
