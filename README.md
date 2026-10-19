@@ -1,63 +1,56 @@
-Kalaazu
-=======
-*The next generation in DarkOrbit private servers.*
+# Kalaazu LAB — Fase 8 · Ponte HTML5 / WebSocket
 
-We all know that DarkOrbit sucks, we all know DarkOrbit Private Servers sucks more, now you have the possibility to make
-a private server that doesn't sucks that much.
+Projeto isolado: **não substitui os módulos Java existentes** e não altera o Stellar Legacy.
 
-Kalaazu is a free, open source private server designed completely from 0 and developed by the community.
-It aims to achieve a complete and clean solution to all the shitty private servers that are available right now, and
-free.
+## O que está pronto
 
-Development
------------
+- `client/index.html`: interface espacial da Fase 7 preservada, com botão **Conectar ao servidor**.
+- `gateway/main.py`: gateway HTTP e WebSocket (Python/aiohttp) para a porta TCP V4 do Kalaazu.
+- `gateway/requirements.txt`: dependência instalada somente na nuvem ou servidor de testes.
+- `tests/test_bridge.py`: integração local do protocolo com servidor TCP e API simulados.
+- `tests/test_live_java.py`: integração contra o Java e MariaDB reais no GitHub Actions.
+- `.github/workflows/lab-bridge.yml`: workflow independente da sequência atual do Universe test.
 
-The development takes place right here, right now. For this reason there are some channels you need to know about.
+### Recursos conectados nesta fase
 
-* *info* contains the information about the current and overall state of the server.
-* *changelog* contains the latest commits to the repo.
-* *development* is where the dev. talk takes place.
+O gateway traduz o `LOGIN` V4 e aguarda o pacote `0|I|...` para enviar `RDY`, respeitando a ordem validada na Fase 6. Em seguida, entrega ao navegador eventos reais da Phoenix, NPCs próximos, caixas, estações, portais e movimentos recebidos. O navegador envia **movimento** e **seleção de alvo** por uma lista restrita de comandos permitidos. A lógica autoritativa permanece no Java.
 
-The code is hosted in github: https://github.com/manulaiko/Kalaazu and the commits are pushed as the work takes place in
-*development*, if you want to propose something, discuss it there before making a pull request.
+**Ainda NÃO implementados no modo online:** dano/combate, coleta/recompensas, outras contas simultâneas, persistência real de cliente, câmera de todos os jogadores, navegação entre mapas e operação pública. Esses recursos permanecem apenas demonstrativos no modo offline anterior. O botão de ataque e coleta fica bloqueado ao conectar online. A apresentação gráfica usa vetores de demonstração, não sprites oficiais.
 
-The github repo will be used to host the code and as bug tracker.
-The issues should be concise and explanatories, the discussion about them belongs to *development* so any reply to the
-issue that isn't in *development* is going to be ignored.
+## Testar usando SOMENTE o GitHub (sem instalar apps no PC)
 
-Planning
---------
+1. Abra a branch `develop` do repositório `silasandrademetrocasa-dot/kalaazu-lab`.
+2. Extraia o ZIP usando **Extrair tudo** no Windows (recurso nativo, sem instalar software).
+3. Envie os arquivos da pasta extraída para os **mesmos caminhos** do repositório pelo GitHub (Add file / Upload files, ou crie arquivo e cole conteúdo pelo navegador). Os módulos anteriores não precisam ser apagados. Evite subir apenas o ZIP sem extrair: o GitHub Actions não consegue executar arquivos que continuam dentro do ZIP.
+4. Na aba **Actions**, execute `Kalaazu LAB - HTML5 bridge test` na branch `develop`.
+5. A execução cria um banco MariaDB **temporário**, configura Java 25, inicia o Kalaazu, a ponte HTTP/WebSocket e roda dois testes (simulado e servidor real). O workflow finaliza tudo e encerra os processos.
 
-The development process is going to be hard and will take a lot of time. It will start with the architectural design
-where we will discuss everything related to the software (platform, language, database, design, features, standards...).
-Once the design is done, we will proceed to write the actual code and test it.
+O HTML pode ser aberto offline com Chrome/Edge. Para conectar a um Java real, ele deve ser servido pelo gateway ativo (e não aberto como `file://`): por exemplo `http://127.0.0.1:8090` dentro da máquina onde roda o gateway. **GitHub Actions não publica esse endereço para a internet**. Um endereço público só será disponibilizado após a futura implantação numa hospedagem permanente (fase 9).
 
-After the code has been done and tested, we could try to host it in a VPS so it can be playable, but that's not the
-objective of Kalaazu, the main objective is to provide the community with a reliable and open source private server.
+### Para executar o gateway em um servidor de desenvolvimento (não no PC da empresa)
 
+```sh
+python -m pip install -r gateway/requirements.txt
+BRIDGE_BIND=127.0.0.1 BRIDGE_PORT=8090 \
+KALAAZU_HTTP=http://127.0.0.1:8081 \
+KALAAZU_GAME_HOST=127.0.0.1 KALAAZU_GAME_PORT=8080 \
+python gateway/main.py
+```
 
-FAQ
----
+Depois, abra `http://127.0.0.1:8090` **na mesma máquina**. A porta 8090 não fica publicamente acessível por padrão.
 
-**What does Kalaazu mean?**
+### Segurança e limites conhecidos
 
-The name comes from the series [Mitsuboshi Colors](https://anilist.co/anime/98439/MitsuboshiColors).
+- **LAB isolado somente:** a autenticação do jogo é mantida na memória do gateway e vinculada a um cookie `HttpOnly` `SameSite=Strict`. Não é enviada ao JavaScript do cliente.
+- Apenas requisições da origem configurada são autorizadas, e o gateway só encaminha comandos de movimento e seleção com limites de tamanho e frequência.
+- Binding padrão é `127.0.0.1`. Não exponha este gateway à internet sem TLS, cookies Secure, proteção contra abuso, configuração explícita de origem, gestão real de sessões e revisão de segurança.
+- Para hospedar atrás de HTTPS, configure `BRIDGE_PUBLIC_ORIGIN=https://seu-dominio` e `BRIDGE_COOKIE_SECURE=true`, além de um proxy seguro e restrições de rede.
+- O cadastro clássico atualmente aceita emails com sufixos de 2–3 letras e nome antes do @ com até 16 caracteres.
+- O gateway usa `usersId` quando a API o fornece e, no LAB descartável em que IDs de usuários e contas coincidem, usa o ID da conta como fallback. **Para produção** deve buscar e validar o ID de usuário autoritativo no backend, não usar esse fallback.
+- O servidor Kalaazu original imprime identificadores de sessão em logs de depuração; desative/redija esses logs antes de usar contas reais.
+- O workflow reconstrói `accounts_settings` **somente no banco descartável do job**. Não copie isso para bancos persistentes com jogadores.
+- A Fase 8 não prova operação multiplayer nem um servidor público 24/7; o teste com Java real precisa passar no GitHub Actions.
 
-**Why are you so weeb?**
+## Licença e referência
 
-Why aren't you?
-
-**How to fix PET?**
-
-You can't.
-
-**Hey, I really like your hard work and I appreciate you, can I host it in my VPS and put a lot of ads and payment
-options so I can beneficiate myself thanks to your work without even giving you credits for it?**
-
-Sure, I don't care what you do with this.
-
-Status
-------
-**Architectural Design**
-
-We have to design a solid architecture that will become the fundamental part of the private server.
+Origem do backend: `https://github.com/manulaiko/Kalaazu` (MIT). Veja `LICENSE-KALAAZU.txt` para a licença e os avisos originais. Cliente vetorial e gateway foram construídos para este laboratório, sem recursos gráficos comerciais de DarkOrbit incluídos no ZIP.
