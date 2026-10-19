@@ -107,6 +107,34 @@ jobs:
               echo "Game port: 8080 OK"
               echo "Policy port: 1843 OK"
               echo "Map 1: 80 NPCs and 100 collectables"
+              
+echo "=== TESTING PLAYER REGISTRATION ==="
+
+TEST_USER="labpilot_${GITHUB_RUN_ID}"
+
+REGISTER_BODY=$(jq -nc --arg u "$TEST_USER" \
+  '{username:$u,password:"LabOnly12345!",email:($u+"@example.invalid")}')
+
+REGISTER_RESPONSE=$(curl -fsS --max-time 30 \
+  -H "Content-Type: application/json" \
+  -d "$REGISTER_BODY" \
+  http://127.0.0.1:8081/external/register)
+
+echo "$REGISTER_RESPONSE" | jq -e '.status == "OK"' >/dev/null
+
+echo "SUCCESS: Pilot registered"
+
+LOGIN_BODY=$(jq -nc --arg u "$TEST_USER" \
+  '{username:$u,password:"LabOnly12345!"}')
+
+LOGIN_RESPONSE=$(curl -fsS --max-time 30 \
+  -H "Content-Type: application/json" \
+  -d "$LOGIN_BODY" \
+  http://127.0.0.1:8081/external/login)
+
+echo "$LOGIN_RESPONSE" | jq -e '.status == "OK"' >/dev/null
+
+echo "SUCCESS: Pilot authentication completed"
 
               exit 0
             fi
