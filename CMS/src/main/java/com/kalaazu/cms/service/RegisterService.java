@@ -197,24 +197,33 @@ public class RegisterService implements Logger {
      *
      * @param account Account that will own the settings.
      */
-    private List<AccountsSettingsEntity> createSettings(AccountsEntity account) {
-        var ret = new ArrayList<AccountsSettingsEntity>();
+    
+private List<AccountsSettingsEntity> createSettings(AccountsEntity account) {
+    var ret = new ArrayList<AccountsSettingsEntity>();
 
-        for (var version : Version.values()) {
-            var settings = new AccountsSettingsEntity();
-            settings.setAccountsByAccountsId(account);
-            settings.setVersion(version.name());
+    for (var version : Version.values()) {
+        var settings = new AccountsSettingsEntity();
 
-            switch (version) {
-                case V4 -> settings.setBarState("1");
-                case V10 -> settings.setBarState("24,1|23,1|100,1|25,1|35,0|34,0|39,0|");
-            }
+        settings.setAccountsByAccountsId(account);
+        settings.setVersion(version.name());
 
-            ret.add(settings);
+        // Configuracao inicial valida para persistencia.
+        settings.setKeybindings(List.of());
+
+        switch (version) {
+            case V4 -> settings.setBarState("1");
+            case V10 -> settings.setBarState(
+                "24,1|23,1|100,1|25,1|35,0|34,0|39,0|"
+            );
         }
 
-        return ret;
+        // Salva realmente no banco de dados.
+        var savedSettings = this.accountsSettings.create(settings);
+        ret.add(savedSettings);
     }
+
+    return ret;
+}
 
     /**
      * Creates the ship of the account.
