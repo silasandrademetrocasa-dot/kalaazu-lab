@@ -48,7 +48,7 @@ public class NpcsEntity {
 
     @Basic
     @Column(name = "gfx", nullable = false)
-    private byte gfx = 0;
+    private short gfx = 0;
 
     @Basic
     @Column(name = "ship_type", nullable = false)
