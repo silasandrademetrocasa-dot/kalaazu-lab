@@ -1,0 +1,20 @@
+name: Kalaazu LAB - Render Docker image check
+'on':
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout isolated Kalaazu LAB
+        uses: actions/checkout@v4
+      - name: Check staging deployment scripts
+        run: |
+          bash -n deploy/start.sh
+          python3 -m py_compile deploy/secured_gateway.py
+      - name: Build container without publishing or deploying
+        run: docker build --file deploy/Dockerfile --tag kalaazu-lab:staging .
+      - name: Verify image metadata
+        run: docker image inspect kalaazu-lab:staging --format '{{.Id}}'
