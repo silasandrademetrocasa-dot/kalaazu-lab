@@ -1,0 +1,149 @@
+name: Kalaazu LAB - Docker runtime smoke test
+
+'on':
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  runtime:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    services:
+      mariadb:
+        image: mariadb:11.4
+        env:
+          MARIADB_ROOT_PASSWORD: ci-root-only
+          MARIADB_DATABASE: kalaazu
+          MARIADB_USER: kalaazu_ci
+          MARIADB_PASSWORD: ci-app-only
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="healthcheck.sh --connect --innodb_initialized"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+
+    steps:
+      - name: Checkout isolated Kalaazu LAB
+        uses: actions/checkout@v4
+
+      - name: Import temporary MariaDB and current settings schema
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker exec -i "${{ job.services.mariadb.id }}" \
+            mariadb -u root -pci-root-only \
+            < Persistence/database/dump.sql
+          docker exec "${{ job.services.mariadb.id }}" \
+            mariadb -u root -pci-root-only \
+            -e 'DROP TABLE IF EXISTS kalaazu.accounts_settings;'
+          docker exec -i "${{ job.services.mariadb.id }}" \
+            mariadb -u root -pci-root-only kalaazu \
+            < Persistence/database/accounts_settings/structure.sql
+          tables=$(docker exec "${{ job.services.mariadb.id }}" \
+            mariadb -N -s -u root -pci-root-only \
+            -e "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='kalaazu';")
+          echo "Temporary tables imported: ${tables}"
+          test "${tables}" -eq 88
+
+      - name: Build Docker image locally (no publication)
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker build --file deploy/Dockerfile --tag kalaazu-lab:runtime-ci .
+
+      - name: Start real Java and secured HTML5 gateway
+        shell: bash
+        run: |
+          set -euo pipefail
+          preview_key=$(openssl rand -hex 32)
+          docker run --detach \
+            --name kalaazu-runtime-ci \
+            --network host \
+            -e MYSQL_HOST=127.0.0.1 \
+            -e MYSQL_PORT=3306 \
+            -e MYSQL_DATABASE=kalaazu \
+            -e MYSQL_USERNAME=kalaazu_ci \
+            -e MYSQL_PASSWORD=ci-app-only \
+            -e SPRING_PROFILES_ACTIVE=lab \
+            -e SPRING_JPA_HIBERNATE_DDL_AUTO=validate \
+            -e AUTO_START=true \
+            -e GAME_VERSION=V4 \
+            -e PORT=10000 \
+            -e BRIDGE_PUBLIC_ORIGIN=https://preview.example.com \
+            -e KALAAZU_PREVIEW_KEY="${preview_key}" \
+            kalaazu-lab:runtime-ci
+
+          # Gate + secure cookies stay configured; this job uses only health checks.
+          # The action runner is disposable, no external Render resources are touched.
+          ready=false
+          for attempt in $(seq 1 120); do
+            if ! docker inspect -f '{{.State.Running}}' kalaazu-runtime-ci 2>/dev/null | grep -qx true; then
+              echo 'FAIL: Container exited before readiness'
+              exit 1
+            fi
+            if curl -fsS --max-time 3 http://127.0.0.1:10000/healthz \
+                | grep -q 'kalaazu-lab-bridge'; then
+              ready=true
+              break
+            fi
+            sleep 2
+          done
+          if [ "${ready}" != true ]; then
+            echo 'FAIL: Secured HTML5 gateway did not become ready'
+            exit 1
+          fi
+          echo 'SUCCESS: Java and secured gateway container are running'
+
+      - name: Verify game ports and preview access gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import socket
+          for port in (8080, 8081, 10000):
+              with socket.create_connection(('127.0.0.1', port), timeout=5):
+                  print(f'SUCCESS: port {port} accepts connections')
+          PY
+          http_code=$(curl -s -o /dev/null -w '%{http_code}' \
+            --max-time 5 http://127.0.0.1:10000/)
+          if [ "${http_code}" != 302 ]; then
+            echo "FAIL: Preview access gate expected HTTP 302, got ${http_code}"
+            exit 1
+          fi
+          curl -fsS --max-time 5 http://127.0.0.1:10000/lab-access \
+            | grep -q 'Acesso restrito ao ambiente de testes'
+          echo 'SUCCESS: Preview access is protected'
+          docker logs kalaazu-runtime-ci 2>&1 \
+            | grep -q 'Initialized map 1-1'
+          echo 'SUCCESS: Map 1-1 initialized in Docker container'
+          echo '=== KALAAZU LAB RUNTIME SMOKE VERIFIED ==='
+
+      - name: Capture filtered runtime diagnostics
+        if: always()
+        shell: bash
+        run: |
+          if docker inspect kalaazu-runtime-ci >/dev/null 2>&1; then
+            docker logs kalaazu-runtime-ci 2>&1 \
+              | grep -Ei 'ERROR|Exception|Caused by|Initialized map|Started game server|ready|FAIL' \
+              | tail -n 100 > runtime-diagnostics.log || true
+            cat runtime-diagnostics.log
+          fi
+
+      - name: Upload diagnostics if test failed
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kalaazu-docker-runtime-diagnostics
+          path: runtime-diagnostics.log
+          if-no-files-found: ignore
+          retention-days: 3
+
+      - name: Remove temporary container
+        if: always()
+        shell: bash
+        run: docker rm -f kalaazu-runtime-ci 2>/dev/null || true
