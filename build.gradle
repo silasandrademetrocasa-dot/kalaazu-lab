@@ -12,7 +12,7 @@ version = '0.0.1-SNAPSHOT'
 
 // Gradle 9: substitui o antigo mainClassName
 application {
-    mainClass = 'com.kalaazu.Launcher'
+    mainClass = 'com.kalaazu.HeadlessLauncher'
 }
 
 configurations {
