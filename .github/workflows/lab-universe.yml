@@ -126,10 +126,10 @@ jobs:
           # FASE 3 - CADASTRO DO PILOTO
           echo "=== TESTING PLAYER REGISTRATION ==="
 
-          TEST_USER="labpilot_${GITHUB_RUN_ID}"
+          TEST_USER="p${GITHUB_RUN_ID}"
 
           REGISTER_BODY=$(jq -nc --arg u "$TEST_USER" \
-            '{username:$u,password:"LabOnly12345!",email:($u+"@example.invalid")}')
+            '{username:$u,password:"LabOnly12345!",email:($u+"@example.com")}')
 
           REGISTER_RESPONSE=$(curl -fsS --max-time 30 \
             -H "Content-Type: application/json" \
