@@ -55,6 +55,12 @@ jobs:
             mariadb -u root -pci-root-only \
             -e "ALTER TABLE kalaazu.accounts_techfactory_items ADD COLUMN IF NOT EXISTS status TINYINT NOT NULL DEFAULT 1 AFTER amount;"
 
+          # Ajuste de tipo necessario para o Hibernate validate.
+          # Apenas banco MariaDB descartavel deste job.
+          docker exec "${{ job.services.mariadb.id }}" \
+            mariadb -u root -pci-root-only \
+            -e "ALTER TABLE kalaazu.items MODIFY COLUMN bonus INT NOT NULL DEFAULT 0;"
+
           tables=$(docker exec "${{ job.services.mariadb.id }}" \
             mariadb -N -s -u root -pci-root-only \
             -e "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='kalaazu';")
@@ -66,6 +72,15 @@ jobs:
             -e "SELECT COUNT(*) FROM information_schema.columns WHERE table_schema='kalaazu' AND table_name='accounts_techfactory_items' AND column_name='status';")
           test "${status_columns}" -eq 1
           echo "SUCCESS: Techfactory status column present"
+
+          bonus_type=$(docker exec "${{ job.services.mariadb.id }}" \
+            mariadb -N -s -u root -pci-root-only \
+            -e "SELECT DATA_TYPE FROM information_schema.columns WHERE table_schema='kalaazu' AND table_name='items' AND column_name='bonus';")
+          if [ "$bonus_type" != 'int' ]; then
+            echo "FAIL: Items bonus expected int, found $bonus_type"
+            exit 1
+          fi
+          echo "SUCCESS: Items bonus is INT"
 
       - name: Build Docker image locally (no publication)
         shell: bash
