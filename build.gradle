@@ -58,6 +58,7 @@ allprojects {
         mavenLocal()
     }
 
+   
     bootJar {
         enabled = false
     }
@@ -65,6 +66,15 @@ allprojects {
     jar {
         enabled = true
     }
+
+    // Bibliotecas não precisam de classe principal executável.
+    // Mantemos o Launcher e o projeto raiz separados.
+    if (project != rootProject && project.name != 'Launcher') {
+        tasks.named('resolveMainClassName') {
+            enabled = false
+        }
+    }
+
 
     ext {
         ikonliVersion = '12.4.0'
