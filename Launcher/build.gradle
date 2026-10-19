@@ -1,6 +1,13 @@
+
 dependencies {
     implementation project(':CMS')
     implementation project(':Server')
     implementation project(':Utils')
     implementation project(':Persistence')
+}
+
+// Define explicitamente a classe principal do servidor
+// sem interface grafica.
+springBoot {
+    mainClass = 'com.kalaazu.HeadlessLauncher'
 }
