@@ -35,20 +35,37 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+
           docker exec -i "${{ job.services.mariadb.id }}" \
             mariadb -u root -pci-root-only \
             < Persistence/database/dump.sql
+
+          # Recria configuracoes apenas no banco descartavel de CI.
           docker exec "${{ job.services.mariadb.id }}" \
             mariadb -u root -pci-root-only \
             -e 'DROP TABLE IF EXISTS kalaazu.accounts_settings;'
+
           docker exec -i "${{ job.services.mariadb.id }}" \
             mariadb -u root -pci-root-only kalaazu \
             < Persistence/database/accounts_settings/structure.sql
+
+          # A coluna existe na entidade Java, mas falta no SQL antigo.
+          # Este ajuste afeta APENAS o MariaDB temporario deste job.
+          docker exec "${{ job.services.mariadb.id }}" \
+            mariadb -u root -pci-root-only \
+            -e "ALTER TABLE kalaazu.accounts_techfactory_items ADD COLUMN IF NOT EXISTS status TINYINT NOT NULL DEFAULT 1 AFTER amount;"
+
           tables=$(docker exec "${{ job.services.mariadb.id }}" \
             mariadb -N -s -u root -pci-root-only \
             -e "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='kalaazu';")
           echo "Temporary tables imported: ${tables}"
           test "${tables}" -eq 88
+
+          status_columns=$(docker exec "${{ job.services.mariadb.id }}" \
+            mariadb -N -s -u root -pci-root-only \
+            -e "SELECT COUNT(*) FROM information_schema.columns WHERE table_schema='kalaazu' AND table_name='accounts_techfactory_items' AND column_name='status';")
+          test "${status_columns}" -eq 1
+          echo "SUCCESS: Techfactory status column present"
 
       - name: Build Docker image locally (no publication)
         shell: bash
@@ -78,8 +95,7 @@ jobs:
             -e KALAAZU_PREVIEW_KEY="${preview_key}" \
             kalaazu-lab:runtime-ci
 
-          # Gate + secure cookies stay configured; this job uses only health checks.
-          # The action runner is disposable, no external Render resources are touched.
+          # Este job valida apenas inicializacao e protecao do gateway.
           ready=false
           for attempt in $(seq 1 120); do
             if ! docker inspect -f '{{.State.Running}}' kalaazu-runtime-ci 2>/dev/null | grep -qx true; then
