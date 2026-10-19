@@ -1,3 +1,4 @@
+
 plugins {
     id 'application'
     id 'java'
@@ -8,7 +9,11 @@ plugins {
 
 group = 'com.kalaazu'
 version = '0.0.1-SNAPSHOT'
-mainClassName = 'com.kalaazu.Launcher'
+
+// Gradle 9: substitui o antigo mainClassName
+application {
+    mainClass = 'com.kalaazu.Launcher'
+}
 
 configurations {
     compileOnly {
@@ -27,20 +32,24 @@ allprojects {
     apply plugin: 'org.openjfx.javafxplugin'
 
     java {
-        toolchain { languageVersion = JavaLanguageVersion.of(25) }
+        toolchain {
+            languageVersion = JavaLanguageVersion.of(25)
+        }
     }
 
-    group 'com.kalaazu'
+    group = 'com.kalaazu'
 
     javafx {
         version = '25'
         modules = ['javafx.controls', 'javafx.fxml']
     }
 
-    task printClasspath {
+    tasks.register('printClasspath') {
         doLast {
             println "JavaFX Path:"
-            println sourceSets.main.runtimeClasspath.filter { it.name.contains("javafx") }.asPath
+            println sourceSets.main.runtimeClasspath
+                .filter { it.name.contains("javafx") }
+                .asPath
         }
     }
 
@@ -57,7 +66,6 @@ allprojects {
         enabled = true
     }
 
-
     ext {
         ikonliVersion = '12.4.0'
         atlantaVersion = '2.1.0'
@@ -67,22 +75,25 @@ allprojects {
         implementation 'org.springframework.boot:spring-boot-starter'
         implementation 'org.springframework.boot:spring-boot-starter-json'
         implementation 'org.springframework.boot:spring-boot-starter-aop'
+
         testImplementation('org.springframework.boot:spring-boot-starter-test') {
-            exclude group: 'org.junit.vintage', module: 'junit-vintage-engine'
+            exclude group: 'org.junit.vintage',
+                    module: 'junit-vintage-engine'
         }
+
         testImplementation 'org.springframework.security:spring-security-test'
+
         compileOnly 'org.projectlombok:lombok:1.18.40'
         annotationProcessor 'org.projectlombok:lombok:1.18.40'
+
         implementation 'org.reflections:reflections:0.10.2'
         implementation 'org.modelmapper:modelmapper:3.1.0'
 
-        implementation("io.github.mkpaz:atlantafx-base:$atlantaVersion")
-        implementation("io.github.mkpaz:atlantafx-styles:$atlantaVersion")
+        implementation "io.github.mkpaz:atlantafx-base:$atlantaVersion"
+        implementation "io.github.mkpaz:atlantafx-styles:$atlantaVersion"
 
-
-        // Ikonli
-        implementation("org.kordamp.ikonli:ikonli-javafx:$ikonliVersion")
-        implementation("org.kordamp.ikonli:ikonli-feather-pack:$ikonliVersion")
+        implementation "org.kordamp.ikonli:ikonli-javafx:$ikonliVersion"
+        implementation "org.kordamp.ikonli:ikonli-feather-pack:$ikonliVersion"
     }
 
     test {
